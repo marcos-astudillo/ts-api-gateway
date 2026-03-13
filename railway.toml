@@ -1,0 +1,11 @@
+[build]
+  builder = "DOCKERFILE"
+  dockerfilePath = "docker/Dockerfile"
+
+[deploy]
+  # Run migrations then start the server
+  startCommand = "node dist/server.js"
+  healthcheckPath = "/healthz"
+  healthcheckTimeout = 100
+  restartPolicyType = "ON_FAILURE"
+  restartPolicyMaxRetries = 3
