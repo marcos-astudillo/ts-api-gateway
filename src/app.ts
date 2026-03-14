@@ -1,7 +1,10 @@
-import Fastify, { FastifyInstance } from 'fastify';
+import Fastify, { FastifyBaseLogger, FastifyInstance, FastifyPluginCallback } from 'fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import requestContextPlugin from '@fastify/request-context';
+import type { FastifyRequestContextOptions } from '@fastify/request-context';
+import swagger from '@fastify/swagger';
+import swaggerUi from '@fastify/swagger-ui';
 
 import { env } from './config/env';
 import { logger } from './logger';
@@ -35,7 +38,8 @@ import { loadConfig, startConfigReload, stopConfigReload } from './services/rout
  */
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
-    loggerInstance: logger,
+    // pino.Logger satisfies FastifyBaseLogger; cast so TypeScript uses the right overload
+    logger: logger as FastifyBaseLogger,
     // Trust X-Forwarded-For / X-Forwarded-Proto from Railway's L4 load balancer
     trustProxy: true,
     // Strict routing — /foo and /foo/ are different paths
@@ -46,6 +50,117 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // ─── Global error handler ────────────────────────────────────
   app.setErrorHandler(errorHandler);
+
+  // ─── OpenAPI / Swagger ─────────────────────────────────────────
+  // Must be registered before routes so schema validation can be applied.
+  await app.register(swagger, {
+    openapi: {
+      openapi: '3.0.3',
+      info: {
+        title: 'TS API Gateway',
+        version: '1.0.0',
+        description: `
+## Overview
+
+A production-ready reverse proxy and API gateway built with **Fastify**, **PostgreSQL**, and **Redis**.
+
+The gateway sits in front of your upstream services and provides:
+
+| Feature | Details |
+|---|---|
+| **Dynamic routing** | Routes are stored in PostgreSQL and hot-reloaded into memory without restarts |
+| **Auth enforcement** | Per-route JWT validation via JWKS (Auth0, Keycloak, or any OIDC provider) |
+| **Rate limiting** | Redis sliding-window algorithm, keyed by user ID or client IP |
+| **Circuit breaker** | Per-upstream Opossum breaker — opens after 50 % errors in 5 requests |
+| **Observability** | Structured Pino logs, \`/metrics\` endpoint, \`X-Request-ID\` trace propagation |
+
+## Request Pipeline
+
+Every proxied request goes through this pipeline:
+
+\`\`\`
+Client → [helmet] → [cors] → traceId → auth → rateLimit → proxy handler → upstream
+\`\`\`
+
+## Authentication
+
+Admin endpoints (\`/admin/*\`) require the \`x-api-key\` header matching the \`ADMIN_API_KEY\` env var.
+
+Proxy routes with \`auth_required: true\` require a \`Bearer\` JWT in the \`Authorization\` header.
+The gateway verifies the token signature via your JWKS endpoint (\`JWKS_URI\` env var) and checks
+the \`aud\` and \`iss\` claims.
+
+## Hot Reload
+
+Every write to \`/admin/routes\` or \`/admin/policies\` bumps a \`config_versions\` counter in PostgreSQL.
+All gateway instances poll this counter every \`CONFIG_RELOAD_INTERVAL_MS\` milliseconds and atomically
+swap the in-memory routing table when a new version is detected — **zero downtime, no restarts needed**.
+        `.trim(),
+        contact: {
+          name: 'API Gateway Docs',
+          url: 'https://github.com/your-org/ts-api-gateway',
+        },
+        license: {
+          name: 'MIT',
+        },
+      },
+      tags: [
+        {
+          name: 'Admin: Routes',
+          description:
+            'Manage proxy route definitions. Each route maps an incoming path prefix to an upstream service. ' +
+            'Changes take effect within `CONFIG_RELOAD_INTERVAL_MS` ms without restarting the gateway.',
+        },
+        {
+          name: 'Admin: Policies',
+          description:
+            'Attach access-control policies to routes. A policy can require JWT authentication ' +
+            'and/or enforce a per-route rate limit that overrides the global default.',
+        },
+        {
+          name: 'Health',
+          description:
+            'Liveness and readiness probes. `/healthz` is used by Railway / Kubernetes as a liveness probe. ' +
+            '`/readyz` checks PostgreSQL and Redis connectivity. `/metrics` returns an in-process snapshot.',
+        },
+      ],
+      components: {
+        securitySchemes: {
+          ApiKeyAuth: {
+            type: 'apiKey',
+            in: 'header',
+            name: 'x-api-key',
+            description:
+              'Shared secret for admin endpoints. Set via the `ADMIN_API_KEY` environment variable. ' +
+              'Use `dev-admin-key-123456` in local development (see `.env`).',
+          },
+          BearerAuth: {
+            type: 'http',
+            scheme: 'bearer',
+            bearerFormat: 'JWT',
+            description:
+              'RS256-signed JWT validated against your JWKS endpoint (`JWKS_URI`). ' +
+              'Required only on proxy routes whose policy has `auth_required: true`.',
+          },
+        },
+      },
+    },
+  });
+
+  await app.register(swaggerUi, {
+    routePrefix: '/docs',
+    uiConfig: {
+      docExpansion: 'list',
+      deepLinking: true,
+      defaultModelExpandDepth: 3,
+      defaultModelsExpandDepth: 3,
+      displayRequestDuration: true,
+      filter: true,
+      tryItOutEnabled: true,
+    },
+    staticCSP: false, // helmet already handles CSP globally
+    transformSpecificationClone: true,
+  });
 
   // ─── Security plugins ─────────────────────────────────────────
   await app.register(helmet, {
@@ -59,12 +174,17 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   // ─── Per-request context (AsyncLocalStorage) ──────────────────
-  await app.register(requestContextPlugin, {
-    defaultStoreValues: {
-      traceId: '' as string,
-      userId: undefined as string | undefined,
+  // Cast needed: @fastify/request-context uses `export =` which TypeScript cannot
+  // directly match to FastifyPluginCallback without explicit narrowing.
+  await app.register(
+    requestContextPlugin as unknown as FastifyPluginCallback<FastifyRequestContextOptions>,
+    {
+      defaultStoreValues: {
+        traceId: '' as string,
+        userId: undefined as string | undefined,
+      },
     },
-  });
+  );
 
   // ─── Wildcard content-type parser ─────────────────────────────
   // Captures any content type that Fastify's built-in parsers don't handle

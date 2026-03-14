@@ -1,5 +1,4 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { requestContext } from '@fastify/request-context';
 import { matchRoute } from '../services/router/route-matcher';
 import { getConfig } from '../services/router/config-cache';
 import { getBreaker } from '../services/proxy/circuit-breaker';
@@ -25,7 +24,7 @@ const PROXY_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'] as const
 
 export async function proxyRoutes(app: FastifyInstance): Promise<void> {
   const handler = async (req: FastifyRequest, reply: FastifyReply) => {
-    const traceId = (requestContext.get('traceId') as string | undefined) ?? '';
+    const traceId = req.requestContext.get('traceId') ?? '';
     const rawUrl = req.url;
     const qIdx = rawUrl.indexOf('?');
     const path = qIdx === -1 ? rawUrl : rawUrl.slice(0, qIdx);

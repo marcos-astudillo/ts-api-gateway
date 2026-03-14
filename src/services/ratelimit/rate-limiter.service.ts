@@ -60,13 +60,13 @@ end
 export async function checkRateLimit(
   routeName: string,
   clientId: string,
-  rps: number,
+  _rps: number,
   burst: number,
 ): Promise<RateLimitResult> {
   const now = Date.now();
   const windowMs = 1000; // 1 second sliding window
   const key = `rl:${routeName}:${clientId}`;
-  const limit = burst; // burst controls the window cap
+  const limit = burst; // burst controls the window cap; _rps is reserved for future token-bucket mode
 
   try {
     const result = (await redis.eval(

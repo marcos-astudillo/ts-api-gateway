@@ -1,5 +1,4 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { requestContext } from '@fastify/request-context';
 import { matchRoute } from '../services/router/route-matcher';
 import { getConfig } from '../services/router/config-cache';
 import { checkRateLimit } from '../services/ratelimit/rate-limiter.service';
@@ -29,8 +28,13 @@ export async function rateLimitMiddleware(
 
   const path = req.url.split('?')[0] ?? '/';
 
-  // Skip internal routes
-  if (path === '/healthz' || path === '/readyz' || path === '/metrics') return;
+  // Skip internal and docs routes
+  if (
+    path === '/healthz' ||
+    path === '/readyz' ||
+    path === '/metrics' ||
+    path.startsWith('/docs')
+  ) return;
 
   const { routes, policies } = getConfig();
   const match = matchRoute(path, routes);
@@ -41,7 +45,7 @@ export async function rateLimitMiddleware(
   const burst = policy?.rateLimitBurst ?? env.RATE_LIMIT_DEFAULT_BURST;
 
   // Use authenticated userId if available (set by authMiddleware), else fall back to IP
-  const userId = requestContext.get('userId');
+  const userId = req.requestContext.get('userId');
   const clientId = userId ?? req.ip ?? 'unknown';
 
   const result = await checkRateLimit(match.route.name, clientId, rps, burst);
@@ -57,7 +61,7 @@ export async function rateLimitMiddleware(
     void reply.status(429).send({
       error: 'Too Many Requests',
       retryAfterSeconds,
-      traceId: requestContext.get('traceId'),
+      traceId: req.requestContext.get('traceId'),
     });
   }
 }

@@ -13,6 +13,7 @@
 - [Architecture](#architecture)
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
+- [API Docs (Swagger UI)](#api-docs-swagger-ui)
 - [API Reference](#api-reference)
 - [Environment Variables](#environment-variables)
 - [Running Locally](#running-locally)
@@ -89,6 +90,7 @@ See full diagrams in [`docs/diagrams/`](./docs/diagrams/):
 | Auth | jsonwebtoken + jwks-rsa |
 | Validation | Zod |
 | Logging | pino |
+| API Docs | @fastify/swagger + @fastify/swagger-ui (OpenAPI 3.0) |
 | Testing | Vitest |
 | Container | Docker (multi-stage) |
 | CI/CD | GitHub Actions |
@@ -110,6 +112,10 @@ ts-api-gateway/
 │   │   ├── admin.routes.ts
 │   │   ├── health.routes.ts
 │   │   └── proxy.routes.ts   ← catch-all proxy
+│   ├── schemas/          # JSON Schema / OpenAPI objects for Swagger docs
+│   │   ├── common.schema.ts  # Shared error envelopes, UUID param
+│   │   ├── route.schema.ts   # Route CRUD schemas + examples
+│   │   └── policy.schema.ts  # Policy CRUD schemas + examples
 │   ├── services/
 │   │   ├── auth/         # JWT verification + JWKS caching
 │   │   ├── metrics/      # In-process request/latency metrics
@@ -138,11 +144,57 @@ ts-api-gateway/
 
 ---
 
+## API Docs (Swagger UI)
+
+The gateway ships with an interactive **OpenAPI 3.0** UI powered by `@fastify/swagger` and `@fastify/swagger-ui`.
+
+| URL | Description |
+|---|---|
+| `GET /docs` | Swagger UI — try every endpoint in the browser |
+| `GET /docs/json` | Raw OpenAPI 3.0 spec (JSON) |
+| `GET /docs/yaml` | Raw OpenAPI 3.0 spec (YAML) |
+
+**Start the server and open the docs:**
+```bash
+npm run dev
+open http://localhost:3000/docs
+```
+
+The interactive UI lets you:
+- **Browse** every admin and health endpoint with full parameter descriptions and example values
+- **Authenticate** — click 🔒 *Authorize* and enter your `ADMIN_API_KEY` to unlock admin endpoints
+- **Try it out** — execute real requests directly from the browser and see live responses
+- **Inspect schemas** — expand any request/response model to see field-level descriptions and constraints
+
+> **Tip:** In production you may want to restrict access to `/docs` by placing it behind your VPN or
+> removing the swagger plugins from the production build. The raw spec at `/docs/json` can be imported
+> into Postman, Insomnia, or any OpenAPI-compatible tooling.
+
+### OpenAPI Spec highlights
+
+#### Security schemes
+
+| Scheme | Header | Used by |
+|---|---|---|
+| `ApiKeyAuth` | `x-api-key` | All `/admin/*` endpoints |
+| `BearerAuth` | `Authorization: Bearer <jwt>` | Proxied routes with `auth_required: true` |
+
+#### Tags
+
+| Tag | Endpoints |
+|---|---|
+| **Admin: Routes** | `GET/POST /admin/routes`, `GET/PUT/DELETE /admin/routes/:id` |
+| **Admin: Policies** | `GET/POST /admin/policies`, `DELETE /admin/policies/:id` |
+| **Health** | `/healthz`, `/readyz`, `/metrics` |
+
+---
+
 ## API Reference
 
 ### Admin API
 
 All admin endpoints require the `x-api-key` header.
+> 💡 The full interactive reference with live request execution is available at [`/docs`](http://localhost:3000/docs) when the server is running.
 
 #### Routes
 

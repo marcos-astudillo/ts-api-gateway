@@ -1,5 +1,4 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { requestContext } from '@fastify/request-context';
 import { matchRoute } from '../services/router/route-matcher';
 import { getConfig } from '../services/router/config-cache';
 import { verifyToken } from '../services/auth/jwt.service';
@@ -26,8 +25,14 @@ export async function authMiddleware(
 ): Promise<void> {
   const path = req.url.split('?')[0] ?? '/';
 
-  // Skip admin and health routes — they are protected differently
-  if (path.startsWith('/admin') || path === '/healthz' || path === '/readyz' || path === '/metrics') {
+  // Skip admin, health, and docs routes — they are protected differently or public
+  if (
+    path.startsWith('/admin') ||
+    path === '/healthz' ||
+    path === '/readyz' ||
+    path === '/metrics' ||
+    path.startsWith('/docs')
+  ) {
     return;
   }
 
@@ -47,7 +52,7 @@ export async function authMiddleware(
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     void reply.status(401).send({
       error: 'Unauthorized — Bearer token required',
-      traceId: requestContext.get('traceId'),
+      traceId: req.requestContext.get('traceId'),
     });
     return;
   }
@@ -56,12 +61,12 @@ export async function authMiddleware(
 
   try {
     const payload = await verifyToken(token);
-    requestContext.set('userId', payload.sub);
+    req.requestContext.set('userId', payload.sub);
   } catch (err) {
     logger.warn({ err }, 'JWT validation failed');
     void reply.status(401).send({
       error: 'Unauthorized — invalid or expired token',
-      traceId: requestContext.get('traceId'),
+      traceId: req.requestContext.get('traceId'),
     });
   }
 }
