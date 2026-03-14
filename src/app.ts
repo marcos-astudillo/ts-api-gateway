@@ -52,7 +52,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.setErrorHandler(errorHandler);
 
   // ─── OpenAPI / Swagger ─────────────────────────────────────────
-  // Must be registered before routes so schema validation can be applied.
+  // Skipped in test mode: @fastify/swagger-ui scans static files from disk
+  // during app.ready(), which can stall Vitest worker threads and cause
+  // all unit-test inject() calls to hang. Tests don't exercise /docs anyway.
+  if (env.NODE_ENV !== 'test') {
   await app.register(swagger, {
     openapi: {
       openapi: '3.0.3',
@@ -161,6 +164,7 @@ swap the in-memory routing table when a new version is detected — **zero downt
     staticCSP: false, // helmet already handles CSP globally
     transformSpecificationClone: true,
   });
+  } // end if (env.NODE_ENV !== 'test')
 
   // ─── Security plugins ─────────────────────────────────────────
   await app.register(helmet, {

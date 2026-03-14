@@ -13,6 +13,8 @@ import type { FastifyInstance } from 'fastify';
 vi.mock('../../src/config/database', () => ({
   db: { end: vi.fn(), query: vi.fn().mockResolvedValue({ rows: [] }) },
   checkDbConnection: vi.fn().mockResolvedValue(true),
+  // app.ts onClose now calls closeDb() — must be present in the mock
+  closeDb: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../src/config/redis', () => ({

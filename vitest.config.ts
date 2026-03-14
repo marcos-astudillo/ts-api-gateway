@@ -4,9 +4,12 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    // Swagger-UI plugin reads static files during app.ready() which can be
-    // slow on cold CI runners. Integration tests also connect to real
-    // Postgres + Redis, adding further startup latency.
+    // Run test files one at a time.
+    // Integration tests share a single PostgreSQL database, so running files
+    // in parallel causes lock contention: admin.test.ts TRUNCATE (afterEach)
+    // blocks proxy.test.ts INSERT (beforeAll) and vice-versa, making every
+    // app.inject() hang for the full 30 s testTimeout.
+    fileParallelism: false,
     testTimeout: 30_000,
     hookTimeout: 30_000,
     coverage: {
