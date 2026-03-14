@@ -4,8 +4,8 @@
   "description": "Production-ready API Gateway — routing, auth, rate limiting, observability",
   "main": "dist/server.js",
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/server.js",
+    "build": "tsc && tsc -p tsconfig.scripts.json",
+    "start": "node dist/scripts/migrate.js && node dist/server.js",
     "dev": "tsx watch src/server.ts",
     "lint": "eslint src --ext .ts",
     "test": "vitest run",

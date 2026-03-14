@@ -3,8 +3,8 @@
   dockerfilePath = "docker/Dockerfile"
 
 [deploy]
-  # Run migrations then start the server
-  startCommand = "node dist/server.js"
+  # Railway provides DATABASE_URL, REDIS_URL, and PORT automatically.
+  # Migrations + server start are handled by the Dockerfile CMD.
   healthcheckPath = "/healthz"
   healthcheckTimeout = 100
   restartPolicyType = "ON_FAILURE"
