@@ -68,7 +68,7 @@ export function recordRequest(
   state.latency.sum += latencyMs;
   for (const b of LATENCY_BUCKETS_MS) {
     if (latencyMs <= b) {
-      state.latency.buckets[`le_${b}ms`]!++;
+      state.latency.buckets[`le_${b}ms`]++;
     }
   }
 

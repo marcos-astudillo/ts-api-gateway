@@ -1,4 +1,4 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyPluginCallback } from 'fastify';
 import { checkDbConnection } from '../config/database';
 import { checkRedisConnection } from '../config/redis';
 import { getConfig } from '../services/router/config-cache';
@@ -14,7 +14,7 @@ import { getMetrics } from '../services/metrics/metrics.service';
  * Railway uses /healthz as the health check path (configured in railway.toml).
  * Kubernetes would use /healthz for liveness and /readyz for readiness.
  */
-export async function healthRoutes(app: FastifyInstance): Promise<void> {
+export const healthRoutes: FastifyPluginCallback = (app, _opts, done) => {
   // Liveness — is the process up?
   app.get('/healthz', {
     logLevel: 'silent',
@@ -182,4 +182,5 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
   }, async (_req, reply) => {
     void reply.send(getMetrics());
   });
-}
+  done();
+};

@@ -1,4 +1,4 @@
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { FastifyPluginCallback, FastifyRequest, FastifyReply } from 'fastify';
 import { matchRoute } from '../services/router/route-matcher';
 import { getConfig } from '../services/router/config-cache';
 import { getBreaker } from '../services/proxy/circuit-breaker';
@@ -22,7 +22,7 @@ import { logger } from '../logger';
 // We proxy every other standard HTTP method.
 const PROXY_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'] as const;
 
-export async function proxyRoutes(app: FastifyInstance): Promise<void> {
+export const proxyRoutes: FastifyPluginCallback = (app, _opts, done) => {
   const handler = async (req: FastifyRequest, reply: FastifyReply) => {
     const traceId = req.requestContext.get('traceId') ?? '';
     const rawUrl = req.url;
@@ -119,4 +119,5 @@ export async function proxyRoutes(app: FastifyInstance): Promise<void> {
   for (const method of PROXY_METHODS) {
     app.route({ method, url: '/*', handler });
   }
-}
+  done();
+};

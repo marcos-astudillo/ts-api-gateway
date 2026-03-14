@@ -1,4 +1,4 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyPluginCallback } from 'fastify';
 import { adminAuthMiddleware } from '../middlewares/admin-auth.middleware';
 import * as routeController from '../controllers/route.controller';
 import * as policyController from '../controllers/policy.controller';
@@ -25,7 +25,7 @@ import { errorResponse, validationErrorResponse } from '../schemas/common.schema
 /** Security requirement applied to every admin endpoint. */
 const adminSecurity = [{ ApiKeyAuth: [] }];
 
-export async function adminRoutes(app: FastifyInstance): Promise<void> {
+export const adminRoutes: FastifyPluginCallback = (app, _opts, done) => {
   // All admin routes require valid API key
   app.addHook('preHandler', adminAuthMiddleware);
 
@@ -165,4 +165,5 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       },
     },
   }, policyController.deletePolicy);
-}
+  done();
+};

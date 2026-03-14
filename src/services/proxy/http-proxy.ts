@@ -57,7 +57,7 @@ export async function proxyRequest(options: ProxyOptions): Promise<ProxyResult> 
   const forwardHeaders: Record<string, string | string[]> = {};
   for (const [key, value] of Object.entries(headers)) {
     if (!HOP_BY_HOP.has(key.toLowerCase()) && value !== undefined) {
-      forwardHeaders[key] = value as string | string[];
+      forwardHeaders[key] = value;
     }
   }
   forwardHeaders['x-request-id'] = traceId;
@@ -82,7 +82,7 @@ export async function proxyRequest(options: ProxyOptions): Promise<ProxyResult> 
     const responseHeaders: Record<string, string | string[]> = {};
     for (const [key, value] of Object.entries(response.headers)) {
       if (value !== undefined) {
-        responseHeaders[key] = value as string | string[];
+        responseHeaders[key] = value;
       }
     }
     responseHeaders['x-request-id'] = traceId;

@@ -15,7 +15,7 @@ async function start() {
 }
 
 // Graceful shutdown
-const shutdown = async (signal: string) => {
+const shutdown = (signal: string): void => {
   logger.info({ signal }, 'Shutdown signal received');
   process.exit(0);
 };
@@ -23,4 +23,4 @@ const shutdown = async (signal: string) => {
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
-start();
+void start();

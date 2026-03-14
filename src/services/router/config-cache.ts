@@ -76,22 +76,22 @@ export function getConfig(): CachedConfig {
  * independently detects the version bump and reloads. No coordination needed
  * because the config is immutable snapshots.
  */
-export function startConfigReload(): void {
-  reloadTimer = setInterval(async () => {
-    try {
-      const latest = await configVersionRepo.getLatest();
-      const latestVersion = latest?.version ?? 0;
+async function checkAndReload(): Promise<void> {
+  const latest = await configVersionRepo.getLatest();
+  const latestVersion = latest?.version ?? 0;
 
-      if (latestVersion > cache.version) {
-        logger.info(
-          { from: cache.version, to: latestVersion },
-          'Config version advanced — hot-reloading',
-        );
-        await loadConfig();
-      }
-    } catch (err) {
-      logger.error(err, 'Config hot-reload check failed');
-    }
+  if (latestVersion > cache.version) {
+    logger.info(
+      { from: cache.version, to: latestVersion },
+      'Config version advanced — hot-reloading',
+    );
+    await loadConfig();
+  }
+}
+
+export function startConfigReload(): void {
+  reloadTimer = setInterval(() => {
+    checkAndReload().catch((err) => logger.error(err, 'Config hot-reload check failed'));
   }, env.CONFIG_RELOAD_INTERVAL_MS);
 }
 
