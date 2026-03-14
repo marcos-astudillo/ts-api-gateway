@@ -11,7 +11,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
  */
 
 // ─── Mock Redis ───────────────────────────────────────────────
-const mockEval = vi.fn();
+// vi.hoisted() runs before vi.mock() factories are executed,
+// so `mockEval` is defined by the time the factory body runs.
+const { mockEval } = vi.hoisted(() => ({ mockEval: vi.fn() }));
 
 vi.mock('../../src/config/redis', () => ({
   redis: {

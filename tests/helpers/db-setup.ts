@@ -12,10 +12,19 @@ if (!DATABASE_URL) {
   throw new Error('DATABASE_URL must be set for integration tests');
 }
 
-export const testDb = new Pool({ connectionString: DATABASE_URL });
+// Lazily created / re-created so that calling closePools() in one describe
+// block's afterAll does not break a subsequent describe block's beforeAll.
+let _pool: Pool | null = null;
+
+function getPool(): Pool {
+  if (!_pool) {
+    _pool = new Pool({ connectionString: DATABASE_URL });
+  }
+  return _pool;
+}
 
 export async function setupSchema(): Promise<void> {
-  await testDb.query(`
+  await getPool().query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version    INTEGER PRIMARY KEY,
       name       VARCHAR(255) NOT NULL,
@@ -58,11 +67,14 @@ export async function setupSchema(): Promise<void> {
 }
 
 export async function cleanupTables(): Promise<void> {
-  await testDb.query(`
+  await getPool().query(`
     TRUNCATE config_versions, policies, routes RESTART IDENTITY CASCADE;
   `);
 }
 
 export async function closePools(): Promise<void> {
-  await testDb.end();
+  if (_pool) {
+    await _pool.end();
+    _pool = null;
+  }
 }
