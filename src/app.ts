@@ -8,7 +8,7 @@ import swaggerUi from '@fastify/swagger-ui';
 
 import { env } from './config/env';
 import { logger } from './logger';
-import { db } from './config/database';
+import { closeDb } from './config/database';
 import { redis } from './config/redis';
 
 import { healthRoutes } from './routes/health.routes';
@@ -228,7 +228,7 @@ swap the in-memory routing table when a new version is detected — **zero downt
   app.addHook('onClose', async () => {
     stopConfigReload();
     await redis.quit();
-    await db.end();
+    await closeDb();
     logger.info('Gateway shut down cleanly');
   });
 
