@@ -19,8 +19,12 @@ import { logger } from '../logger';
  *      c. circuit-breaker + undici proxy
  *      d. metrics recording
  */
+// @fastify/cors already handles OPTIONS /* for CORS preflight.
+// We proxy every other standard HTTP method.
+const PROXY_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'] as const;
+
 export async function proxyRoutes(app: FastifyInstance): Promise<void> {
-  app.all('/*', async (req: FastifyRequest, reply: FastifyReply) => {
+  const handler = async (req: FastifyRequest, reply: FastifyReply) => {
     const traceId = (requestContext.get('traceId') as string | undefined) ?? '';
     const rawUrl = req.url;
     const qIdx = rawUrl.indexOf('?');
@@ -111,5 +115,9 @@ export async function proxyRoutes(app: FastifyInstance): Promise<void> {
 
       void reply.status(502).send({ error: 'Bad gateway', traceId });
     }
-  });
+  };
+
+  for (const method of PROXY_METHODS) {
+    app.route({ method, url: '/*', handler });
+  }
 }

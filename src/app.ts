@@ -1,7 +1,7 @@
 import Fastify, { FastifyInstance } from 'fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
-import { requestContext } from '@fastify/request-context';
+import requestContextPlugin from '@fastify/request-context';
 
 import { env } from './config/env';
 import { logger } from './logger';
@@ -59,7 +59,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   // ─── Per-request context (AsyncLocalStorage) ──────────────────
-  await app.register(requestContext, {
+  await app.register(requestContextPlugin, {
     defaultStoreValues: {
       traceId: '' as string,
       userId: undefined as string | undefined,
