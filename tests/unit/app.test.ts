@@ -26,6 +26,8 @@ vi.mock('../../src/config/redis', () => ({
     on: vi.fn(),
   },
   checkRedisConnection: vi.fn().mockResolvedValue(true),
+  // app.ts onClose now calls closeRedis() — must be present in the mock
+  closeRedis: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Mock config cache so we don't try to query DB

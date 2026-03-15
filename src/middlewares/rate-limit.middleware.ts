@@ -28,12 +28,13 @@ export async function rateLimitMiddleware(
 
   const path = req.url.split('?')[0] ?? '/';
 
-  // Skip internal and docs routes
+  // Skip internal, docs, and admin routes
   if (
     path === '/healthz' ||
     path === '/readyz' ||
     path === '/metrics' ||
-    path.startsWith('/docs')
+    path.startsWith('/docs') ||
+    path.startsWith('/admin')
   ) return;
 
   const { routes, policies } = getConfig();

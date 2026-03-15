@@ -3,13 +3,11 @@ import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import requestContextPlugin from '@fastify/request-context';
 import type { FastifyRequestContextOptions } from '@fastify/request-context';
-import swagger from '@fastify/swagger';
-import swaggerUi from '@fastify/swagger-ui';
 
 import { env } from './config/env';
 import { logger } from './logger';
 import { closeDb } from './config/database';
-import { redis } from './config/redis';
+import { redis, closeRedis } from './config/redis';
 
 import { healthRoutes } from './routes/health.routes';
 import { adminRoutes } from './routes/admin.routes';
@@ -52,10 +50,14 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.setErrorHandler(errorHandler);
 
   // ─── OpenAPI / Swagger ─────────────────────────────────────────
-  // Skipped in test mode: @fastify/swagger-ui scans static files from disk
-  // during app.ready(), which can stall Vitest worker threads and cause
-  // all unit-test inject() calls to hang. Tests don't exercise /docs anyway.
+  // Dynamic imports ensure @fastify/swagger and @fastify/swagger-ui (which
+  // pulls in @fastify/static) are never loaded in test mode. Loading
+  // @fastify/static even without registering it patches stream internals in
+  // a way that causes light-my-request (inject()) to stall waiting for a
+  // response-end event that never arrives.
   if (env.NODE_ENV !== 'test') {
+  const { default: swagger } = await import('@fastify/swagger');
+  const { default: swaggerUi } = await import('@fastify/swagger-ui');
   await app.register(swagger, {
     openapi: {
       openapi: '3.0.3',
@@ -231,7 +233,7 @@ swap the in-memory routing table when a new version is detected — **zero downt
 
   app.addHook('onClose', async () => {
     stopConfigReload();
-    await redis.quit();
+    await closeRedis();
     await closeDb();
     logger.info('Gateway shut down cleanly');
   });
