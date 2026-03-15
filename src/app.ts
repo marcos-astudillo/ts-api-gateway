@@ -222,12 +222,25 @@ swap the in-memory routing table when a new version is detected — **zero downt
   // ─── Lifecycle hooks ──────────────────────────────────────────
 
   app.addHook('onReady', async () => {
-    // Connect to Redis explicitly (lazyConnect: true in redis.ts)
-    await redis.connect();
-    logger.info('Redis connected');
+    // Connect to Redis explicitly (lazyConnect: true in redis.ts).
+    // Wrap in try/catch: a transient Redis error at startup should be logged
+    // but must not prevent the app from becoming ready — rate-limit and cache
+    // middleware already degrade gracefully when Redis is unavailable.
+    try {
+      await redis.connect();
+      logger.info('Redis connected');
+    } catch (err) {
+      logger.error({ err }, 'Redis connection failed at startup — continuing without Redis');
+    }
 
-    // Load routes + policies into memory cache from DB
-    await loadConfig();
+    // Load routes + policies into memory cache from DB.
+    // If the DB is unreachable the gateway starts with an empty routing table
+    // and will pick up config on the next hot-reload cycle.
+    try {
+      await loadConfig();
+    } catch (err) {
+      logger.error({ err }, 'Initial config load failed — routing table is empty');
+    }
 
     // Start background polling for config version changes (hot reload)
     startConfigReload();
