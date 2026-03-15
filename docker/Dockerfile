@@ -31,11 +31,15 @@ COPY --from=builder /app/dist ./dist
 
 USER appuser
 
-# Railway injects PORT automatically; default to 3000
+# PORT is injected at runtime by Railway (e.g. 8080).
+# EXPOSE is documentation only — Railway routes to $PORT, not this value.
 EXPOSE 3000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD wget -qO- http://localhost:3000/healthz || exit 1
+# NOTE: No HEALTHCHECK directive here.
+# Railway uses railway.toml [deploy].healthcheckPath = "/healthz" to probe the
+# correct $PORT at runtime.  A hardcoded Docker HEALTHCHECK on port 3000 would
+# always fail when Railway sets PORT=8080, causing the container to be killed
+# after the retry window (~7 min) even though the app is healthy.
 
 # Run migrations then start the gateway
 CMD ["sh", "-c", "node dist/scripts/migrate.js && node dist/server.js"]
