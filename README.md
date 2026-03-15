@@ -3,7 +3,27 @@
 > A production-ready **API Gateway** built with Node.js, TypeScript, and Fastify.
 > Implements routing, authentication (JWT/JWKS), Redis rate limiting, circuit breakers, distributed tracing, response caching, canary traffic splitting, upstream health monitoring, config hot reload, and full observability.
 
-[![CI](https://github.com/YOUR_USERNAME/ts-api-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/ts-api-gateway/actions)
+[![CI](https://github.com/marcos-astudillo/ts-api-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/marcos-astudillo/ts-api-gateway/actions)
+![Node.js](https://img.shields.io/badge/Runtime-Node.js%2020-339933?logo=node.js&logoColor=white)
+![TypeScript](https://img.shields.io/badge/Language-TypeScript%205-3178C6?logo=typescript&logoColor=white)
+![Fastify](https://img.shields.io/badge/HTTP%20Framework-Fastify%204-20232A?logo=fastify&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL%2016-336791?logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Cache%20%2F%20Rate%20limiting-Redis%207-DC382D?logo=redis&logoColor=white)
+![Docker](https://img.shields.io/badge/Container-Docker-2496ED?logo=docker&logoColor=white)
+![GitHub Actions](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-2088FF?logo=githubactions&logoColor=white)
+![Railway](https://img.shields.io/badge/Hosting-Railway-FFFFFF?logo=railway&logoColor=black)
+![Vitest](https://img.shields.io/badge/Testing-Vitest-646CFF)
+![License](https://img.shields.io/github/license/marcos-astudillo/ts-api-gateway?color=blue)
+
+---
+
+## API Preview
+
+Swagger UI for testing the API gateway endpoints.
+
+<p align="center">
+  <img src="docs/images/swagger-ui.png" alt="Swagger UI" width="900"/>
+</p>
 
 ---
 
@@ -434,6 +454,27 @@ done
 
 ---
 
+## Live API
+
+This service is deployed on Railway and exposes public documentation, health monitoring, and metrics endpoints.
+
+<p align="center">
+  <a href="https://ts-api-gateway-production.up.railway.app/docs">
+    <img src="https://img.shields.io/badge/Swagger-UI-85EA2D?style=for-the-badge&logo=swagger" alt="Swagger UI"/>
+  </a>
+  <a href="https://ts-api-gateway-production.up.railway.app/healthz">
+    <img src="https://img.shields.io/badge/Health-Check-success?style=for-the-badge&logo=railway" alt="Health Check"/>
+  </a>
+  <a href="https://ts-api-gateway-production.up.railway.app/readyz">
+    <img src="https://img.shields.io/badge/Readiness-Check-success?style=for-the-badge&logo=railway" alt="Readiness Check"/>
+  </a>
+  <a href="https://ts-api-gateway-production.up.railway.app/metrics">
+    <img src="https://img.shields.io/badge/Metrics-Observability-blue?style=for-the-badge" alt="Metrics"/>
+  </a>
+</p>
+
+---
+
 ## API Docs (Swagger UI)
 
 The gateway ships with an interactive **OpenAPI 3.0** UI powered by `@fastify/swagger` and `@fastify/swagger-ui`.
@@ -818,4 +859,30 @@ The design covers:
 
 ## License
 
-MIT
+This project is licensed under the MIT License.
+
+See the [LICENSE](LICENSE) file for details.
+
+---
+
+## 📫 Connect With Me
+
+<p align="center">
+
+  <a href="https://www.marcosastudillo.com">
+    <img src="https://img.shields.io/badge/Website-marcosastudillo.com-blueviolet?style=for-the-badge&logo=google-chrome" />
+  </a>
+
+  <a href="https://www.linkedin.com/in/marcos-astudillo-c/">
+    <img src="https://img.shields.io/badge/LinkedIn-Marcos%20Astudillo-blue?style=for-the-badge&logo=linkedin" />
+  </a>
+
+  <a href="https://github.com/marcos-astudillo">
+    <img src="https://img.shields.io/badge/GitHub-Marcos%20Astudillo-181717?style=for-the-badge&logo=github&logoColor=white" />
+  </a>
+
+  <a href="mailto:m.astudillo1986@gmail.com">
+    <img src="https://img.shields.io/badge/Email-m.astudillo1986%40gmail.com-red?style=for-the-badge&logo=gmail" />
+  </a>
+
+</p>
