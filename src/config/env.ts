@@ -54,6 +54,24 @@ const envSchema = z.object({
   CIRCUIT_BREAKER_TIMEOUT_MS: z.coerce.number().default(3000),
   CIRCUIT_BREAKER_ERROR_THRESHOLD_PERCENT: z.coerce.number().default(50),
   CIRCUIT_BREAKER_RESET_TIMEOUT_MS: z.coerce.number().default(10000),
+
+  // Response cache (Redis)
+  CACHE_ENABLED: z
+    .string()
+    .transform((v) => v === 'true')
+    .default('false'),
+  // Default TTL in seconds for cached responses (0 = disabled, route policy overrides this)
+  CACHE_DEFAULT_TTL_SECONDS: z.coerce.number().default(0),
+
+  // Upstream health monitoring
+  UPSTREAM_HEALTH_ENABLED: z
+    .string()
+    .transform((v) => v === 'true')
+    .default('false'),
+  // How often (ms) to probe all registered upstreams
+  UPSTREAM_HEALTH_CHECK_INTERVAL_MS: z.coerce.number().default(30_000),
+  // Per-probe HTTP timeout (ms)
+  UPSTREAM_HEALTH_TIMEOUT_MS: z.coerce.number().default(3_000),
 });
 
 const parsed = envSchema.safeParse(process.env);

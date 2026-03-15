@@ -90,6 +90,25 @@ const migrations: Migration[] = [
         ON config_versions(version DESC);
     `,
   },
+  {
+    version: 5,
+    name: 'add_canary_columns_to_routes',
+    sql: `
+      ALTER TABLE routes
+        ADD COLUMN IF NOT EXISTS canary_upstream_host VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS canary_upstream_port INTEGER,
+        ADD COLUMN IF NOT EXISTS canary_weight        INTEGER
+          CHECK (canary_weight IS NULL OR (canary_weight >= 0 AND canary_weight <= 100));
+    `,
+  },
+  {
+    version: 6,
+    name: 'add_cache_ttl_to_policies',
+    sql: `
+      ALTER TABLE policies
+        ADD COLUMN IF NOT EXISTS cache_ttl_seconds INTEGER;
+    `,
+  },
 ];
 
 async function runMigrations(): Promise<void> {

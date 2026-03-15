@@ -2,8 +2,10 @@ import { FastifyPluginCallback, FastifyRequest, FastifyReply } from 'fastify';
 import { matchRoute } from '../services/router/route-matcher';
 import { getConfig } from '../services/router/config-cache';
 import { getBreaker } from '../services/proxy/circuit-breaker';
+import { selectUpstream } from '../services/proxy/traffic-splitter';
 import { recordRequest } from '../services/metrics/metrics.service';
 import { logger } from '../logger';
+import { env } from '../config/env';
 
 /**
  * Catch-all proxy route — must be registered LAST in app.ts.
@@ -44,7 +46,20 @@ export const proxyRoutes: FastifyPluginCallback = (app, _opts, done) => {
     }
 
     const { route, upstreamPath } = match;
-    const breaker = getBreaker(route.upstreamHost, route.upstreamPort);
+
+    // Canary traffic splitting — pick stable or canary upstream
+    const upstream = env.FEATURE_CANARY_RELEASES
+      ? selectUpstream(route)
+      : { host: route.upstreamHost, port: route.upstreamPort, variant: 'stable' as const };
+
+    if (upstream.variant === 'canary') {
+      logger.debug(
+        { route: route.name, canaryHost: upstream.host, canaryPort: upstream.port },
+        'Canary upstream selected',
+      );
+    }
+
+    const breaker = getBreaker(upstream.host, upstream.port);
 
     // Extract body as Buffer.
     // Fastify parses application/json into an object — re-serialize it.
@@ -60,11 +75,18 @@ export const proxyRoutes: FastifyPluginCallback = (app, _opts, done) => {
       }
     }
 
+    // When a canary upstream is selected, substitute its host/port into the route
+    // so that proxyRequest and upstream-client see the correct target.
+    const effectiveRoute =
+      upstream.variant === 'canary'
+        ? { ...route, upstreamHost: upstream.host, upstreamPort: upstream.port }
+        : route;
+
     const start = Date.now();
 
     try {
       const result = await breaker.fire({
-        route,
+        route: effectiveRoute,
         upstreamPath,
         method: req.method,
         headers: req.headers as Record<string, string | string[] | undefined>,

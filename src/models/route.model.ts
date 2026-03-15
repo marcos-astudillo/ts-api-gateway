@@ -13,6 +13,12 @@ export interface Route {
   requestTimeoutMs: number;
   retries: number;
   enabled: boolean;
+  /** Canary upstream host — null when canary is not configured */
+  canaryUpstreamHost: string | null;
+  /** Canary upstream port — null when canary is not configured */
+  canaryUpstreamPort: number | null;
+  /** Percentage of traffic (0–100) routed to the canary upstream */
+  canaryWeight: number | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -33,6 +39,15 @@ export interface CreateRouteDto {
     request?: number;
   };
   retries?: number;
+  /** Optional canary traffic splitting configuration */
+  canary?: {
+    upstream: {
+      host: string;
+      port: number;
+    };
+    /** Percentage of traffic (1–100) sent to the canary upstream */
+    weight: number;
+  };
 }
 
 export type UpdateRouteDto = Partial<CreateRouteDto> & { enabled?: boolean };

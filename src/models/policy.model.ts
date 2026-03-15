@@ -9,6 +9,8 @@ export interface Policy {
   authRequired: boolean;
   rateLimitRps: number | null;
   rateLimitBurst: number | null;
+  /** Per-route response cache TTL in seconds (null = use global default) */
+  cacheTtlSeconds: number | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -22,4 +24,6 @@ export interface CreatePolicyDto {
     rps: number;
     burst: number;
   };
+  /** Per-route response cache TTL in seconds (0 or omit to disable) */
+  cache_ttl_seconds?: number;
 }

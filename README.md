@@ -1,7 +1,7 @@
 # ts-api-gateway
 
 > A production-ready **API Gateway** built with Node.js, TypeScript, and Fastify.
-> Implements routing, authentication (JWT/JWKS), Redis rate limiting, circuit breakers, config hot reload, and full observability.
+> Implements routing, authentication (JWT/JWKS), Redis rate limiting, circuit breakers, distributed tracing, response caching, canary traffic splitting, upstream health monitoring, config hot reload, and full observability.
 
 [![CI](https://github.com/YOUR_USERNAME/ts-api-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/ts-api-gateway/actions)
 
@@ -14,11 +14,17 @@
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
 - [Resilience Features](#resilience-features)
+- [Distributed Tracing](#distributed-tracing)
+- [Response Caching](#response-caching)
+- [Upstream Health Monitoring](#upstream-health-monitoring)
+- [Canary Traffic Splitting](#canary-traffic-splitting)
 - [API Docs (Swagger UI)](#api-docs-swagger-ui)
 - [API Reference](#api-reference)
 - [Environment Variables](#environment-variables)
 - [Running Locally](#running-locally)
 - [Docker](#docker)
+- [Example Services](#example-services)
+- [Load Testing](#load-testing)
 - [Testing](#testing)
 - [Deployment (Railway)](#deployment-railway)
 - [Scaling Considerations](#scaling-considerations)
@@ -34,17 +40,23 @@
 | **Auth (JWT/JWKS)** | Per-route JWT validation with cached JWKS key fetching |
 | **Rate Limiting** | Redis sliding-window per route + per client (IP or user ID) |
 | **Circuit Breaker** | Per-upstream opossum breaker — prevents cascading failures |
+| **Retry Policy** | Automatic retries on network errors, timeouts, and 5xx responses |
 | **Config Hot Reload** | Routes and policies reload without restart via DB version polling |
-| **Observability** | Structured JSON logs (pino), `/metrics`, `/healthz`, `/readyz` |
-| **Admin API** | REST API to manage routes and policies at runtime |
-| **Tracing** | X-Request-ID propagated end-to-end through all services |
+| **Distributed Tracing** | W3C `traceparent` + Zipkin B3 headers (`x-b3-traceid`, `x-b3-spanid`) — compatible with Jaeger/Tempo |
+| **Response Caching** | Redis-backed GET/HEAD cache with per-route TTL, `X-Cache: HIT/MISS` headers |
+| **Upstream Health** | Background HEAD prober, consecutive-failure tracking, circuit-state integration |
+| **Canary Splitting** | Weighted per-request coin flip; per-upstream circuit breakers for stable and canary |
+| **Observability** | Structured JSON logs (pino), `/metrics`, `/healthz`, `/readyz`, `/admin/upstreams` |
+| **Admin API** | REST API to manage routes, policies, and observe upstream health at runtime |
 
 **Feature flags** (set in `.env`):
 
 | Flag | Default | Description |
 |---|---|---|
 | `RATE_LIMIT_ENABLED` | `true` | Toggle rate limiting on/off |
-| `FEATURE_CANARY_RELEASES` | `false` | Enable weighted traffic splitting (future) |
+| `CACHE_ENABLED` | `false` | Enable Redis response caching |
+| `UPSTREAM_HEALTH_ENABLED` | `false` | Enable background upstream health probing |
+| `FEATURE_CANARY_RELEASES` | `false` | Enable weighted canary traffic splitting |
 | `FEATURE_ANALYTICS` | `false` | Enable analytics event emission (future) |
 
 ---
@@ -55,7 +67,7 @@
 Client → TLS Termination / L4 LB → Gateway Instances (stateless) → Upstream Services
                                             ↕                ↕
                                        PostgreSQL          Redis
-                                      (config store)   (rate limits)
+                                    (config store)  (rate limits + cache)
 ```
 
 See full diagrams in [`docs/diagrams/`](./docs/diagrams/):
@@ -65,14 +77,18 @@ See full diagrams in [`docs/diagrams/`](./docs/diagrams/):
 
 **Request middleware pipeline** (in order):
 ```
-→ traceId injection
+→ traceparent / B3 tracing (W3C trace propagation)
 → auth (JWT validation if route policy requires it)
 → rate limit (Redis sliding window)
+→ cache lookup (Redis GET — serves cached response on HIT)
 → route matching (longest prefix)
+→ canary selection (weighted coin flip if FEATURE_CANARY_RELEASES=true)
 → circuit breaker (per upstream)
+→ retry policy + AbortSignal timeout (upstream-client)
 → undici HTTP proxy
+→ cache store (Redis SETEX on 2xx — onSend hook)
 → metrics recording
-→ response
+→ response + traceparent header
 ```
 
 ---
@@ -106,39 +122,49 @@ ts-api-gateway/
 ├── src/
 │   ├── config/           # env validation, DB pool, Redis client
 │   ├── controllers/      # Admin API request handlers
-│   ├── middlewares/       # trace-id, auth, rate-limit, admin-auth, error handler
-│   ├── models/           # TypeScript interfaces (Route, Policy, ConfigVersion)
+│   ├── middlewares/      # trace-id (W3C+B3), auth, rate-limit, cache, admin-auth, error handler
+│   ├── models/           # TypeScript interfaces (Route w/ canary, Policy w/ cacheTtl)
 │   ├── repositories/     # Typed PostgreSQL access layer
 │   ├── routes/           # Fastify route registrations
-│   │   ├── admin.routes.ts
+│   │   ├── admin.routes.ts       # + GET /admin/upstreams
 │   │   ├── health.routes.ts
-│   │   └── proxy.routes.ts   ← catch-all proxy
+│   │   └── proxy.routes.ts       ← catch-all proxy (canary-aware)
 │   ├── schemas/          # JSON Schema / OpenAPI objects for Swagger docs
-│   │   ├── common.schema.ts  # Shared error envelopes, UUID param
-│   │   ├── route.schema.ts   # Route CRUD schemas + examples
-│   │   └── policy.schema.ts  # Policy CRUD schemas + examples
 │   ├── services/
 │   │   ├── auth/         # JWT verification + JWKS caching
+│   │   ├── cache/        # Redis response cache (buildCacheKey, getCached, setCached)
+│   │   ├── health/       # Upstream health prober + in-memory healthMap
 │   │   ├── metrics/      # In-process request/latency metrics
-│   │   ├── proxy/        # undici proxy + circuit breaker
+│   │   ├── proxy/        # undici proxy + circuit breaker + retry + traffic splitter
+│   │   │   ├── http-proxy.ts         # Core undici wrapper
+│   │   │   ├── upstream-client.ts    # Retry + AbortSignal.timeout per attempt
+│   │   │   ├── circuit-breaker.ts    # Per-upstream opossum breaker registry
+│   │   │   ├── retry-policy.ts       # isRetryableError, isRetryableStatus, executeWithRetry
+│   │   │   └── traffic-splitter.ts   # selectUpstream — weighted canary coin flip
 │   │   ├── ratelimit/    # Redis sliding window
 │   │   └── router/       # Route matcher + in-memory config cache
-│   ├── types/            # Module augmentations
+│   ├── types/            # Module augmentations (requestContext + spanId, cacheKey, cacheTtl)
 │   ├── app.ts            # Fastify app factory (testable without port binding)
 │   ├── logger.ts         # pino structured logger
 │   └── server.ts         # Entry point — binds port, graceful shutdown
 ├── tests/
 │   ├── helpers/          # DB setup/teardown for integration tests
-│   ├── unit/             # Route matcher, rate limiter, metrics
-│   └── integration/      # Admin API, proxy routing
+│   ├── unit/             # Route matcher, rate limiter, metrics, resilience
+│   ├── integration/      # Admin API, proxy routing
+│   └── load/             # k6 smoke / load / stress scripts
+├── example-services/
+│   ├── users/server.js   # Minimal users upstream (Node.js, no deps)
+│   ├── orders/server.js  # Minimal orders upstream — run two instances for canary demo
+│   ├── setup.sh          # Registers example routes + policies via Admin API
+│   └── README.md
 ├── docs/diagrams/        # Architecture, data model, request flow (Mermaid)
 ├── scripts/
-│   └── migrate.ts        # Database migration runner
+│   └── migrate.ts        # Database migration runner (migrations 1–6)
 ├── docker/
 │   └── Dockerfile        # Multi-stage build
 ├── .github/workflows/
 │   └── ci.yml            # Typecheck → lint → test → build → deploy
-├── docker-compose.yml    # Full local stack: gateway + postgres + redis
+├── docker-compose.yml    # Full local stack: gateway + postgres + redis + example services
 ├── railway.toml          # Railway deployment config
 └── .env.example          # All environment variables documented
 ```
@@ -231,6 +257,183 @@ All resilience events emit structured log entries:
 
 ---
 
+## Distributed Tracing
+
+The gateway implements **W3C Trace Context** (`traceparent`) and **Zipkin B3** headers natively — no sidecar required. It integrates out-of-the-box with Jaeger, Grafana Tempo, and any OpenTelemetry-compatible backend.
+
+### How it works
+
+1. If the incoming request carries a `traceparent` header, the gateway **extracts** the trace ID and parent span ID.
+2. If not, a **new 128-bit trace ID** and **64-bit span ID** are generated using `crypto.randomBytes`.
+3. A fresh span ID is always generated for the gateway's own span.
+4. The following headers are **propagated to the upstream**:
+   - `traceparent: 00-{traceId32hex}-{spanId16hex}-01`
+   - `x-b3-traceid`, `x-b3-spanid`, `x-b3-sampled: 1`
+   - `x-request-id` (backwards compatibility)
+5. `traceparent` is echoed back to the client in the response.
+
+### Connecting to Jaeger
+
+```bash
+# Run Jaeger all-in-one locally
+docker run -d --name jaeger \
+  -p 16686:16686 \
+  -p 4317:4317 \
+  jaegertracing/all-in-one:latest
+
+# The gateway emits traceparent — configure your upstreams to forward it to Jaeger
+# Open http://localhost:16686 to browse traces
+```
+
+> The gateway itself does not call the Jaeger/OTLP API — it propagates headers so that each microservice can report its own spans. To report gateway spans directly, add an OpenTelemetry SDK integration.
+
+---
+
+## Response Caching
+
+Redis-backed response caching for idempotent routes (`GET` and `HEAD`). Serves cached responses without touching the upstream until TTL expires.
+
+### Enable caching
+
+```bash
+# .env
+CACHE_ENABLED=true
+CACHE_DEFAULT_TTL_SECONDS=60   # optional global default
+```
+
+Set per-route TTL via the policy API:
+```bash
+curl -X POST http://localhost:3000/admin/policies \
+  -H "x-api-key: $ADMIN_API_KEY" \
+  -H "content-type: application/json" \
+  -d '{"route":"users","cache_ttl_seconds":120}'
+```
+
+### Cache behaviour
+
+| Condition | Result |
+|---|---|
+| `CACHE_ENABLED=false` | Caching disabled entirely |
+| Method is not `GET` or `HEAD` | Bypassed |
+| Request has `Authorization` header | Bypassed (user-specific response) |
+| Request has `Cache-Control: no-cache` or `no-store` | Bypassed |
+| Route has no TTL (policy or global default) | Bypassed |
+| Upstream returns `Cache-Control: no-store` | Not stored |
+| Upstream returns non-2xx | Not stored |
+
+### Response headers
+
+| Header | Value | Description |
+|---|---|---|
+| `X-Cache` | `HIT` / `MISS` | Whether the response was served from cache |
+| `X-Cache-Age` | seconds | Age of the cached entry (only on HIT) |
+
+### Cache invalidation
+
+```bash
+# Via Admin API — invalidates all cached responses for a route
+# (Built into the cache.service.ts invalidateRoute() function)
+# Can be called after a deployment to flush stale responses
+```
+
+---
+
+## Upstream Health Monitoring
+
+A background loop periodically sends a lightweight `HEAD /` probe to every registered upstream. Results are surfaced via `GET /admin/upstreams`.
+
+### Enable health monitoring
+
+```bash
+# .env
+UPSTREAM_HEALTH_ENABLED=true
+UPSTREAM_HEALTH_CHECK_INTERVAL_MS=30000   # probe every 30 s
+UPSTREAM_HEALTH_TIMEOUT_MS=3000           # per-probe timeout
+```
+
+### Health status values
+
+| Status | Meaning |
+|---|---|
+| `healthy` | Probe succeeded, latency ≤ 2 000 ms |
+| `degraded` | Probe succeeded but latency > 2 000 ms, or first failure |
+| `unhealthy` | 3+ consecutive probe failures |
+| `unknown` | No probe has run yet |
+
+### View upstream health
+
+```bash
+curl http://localhost:3000/admin/upstreams \
+  -H "x-api-key: $ADMIN_API_KEY"
+```
+
+Example response:
+```json
+[
+  {
+    "upstream": "orders.svc:8080",
+    "status": "healthy",
+    "latencyMs": 14,
+    "consecutiveFailures": 0,
+    "lastCheckedAt": "2024-01-15T10:30:00.000Z",
+    "circuitBreaker": "closed"
+  }
+]
+```
+
+---
+
+## Canary Traffic Splitting
+
+Route a configurable percentage of traffic to a canary upstream while the rest goes to the stable upstream. Each variant has its own independent circuit breaker.
+
+### Enable canary
+
+```bash
+# .env
+FEATURE_CANARY_RELEASES=true
+```
+
+### Register a route with canary
+
+```bash
+curl -X POST http://localhost:3000/admin/routes \
+  -H "x-api-key: $ADMIN_API_KEY" \
+  -H "content-type: application/json" \
+  -d '{
+    "name": "orders",
+    "match": { "path_prefix": "/v1/orders" },
+    "upstream": { "host": "orders.svc", "port": 8080 },
+    "canary": {
+      "upstream": { "host": "orders-canary.svc", "port": 8090 },
+      "weight": 10
+    }
+  }'
+```
+
+This sends **10 %** of `/v1/orders` traffic to `orders-canary.svc:8090` and **90 %** to `orders.svc:8080`.
+
+### How the selection works
+
+```
+Math.random() * 100 < canaryWeight  →  canary
+otherwise                           →  stable
+```
+
+The selection is **stateless and per-request**. For sticky sessions (always show canary to the same user), key the decision on the user ID from the request context.
+
+### Verify canary routing
+
+Check the `x-service-version` header returned by the example services:
+```bash
+for i in $(seq 1 20); do
+  curl -s http://localhost:3000/v1/orders | python3 -c \
+    "import sys, json; print(json.load(sys.stdin)['version'])"
+done
+```
+
+---
+
 ## API Docs (Swagger UI)
 
 The gateway ships with an interactive **OpenAPI 3.0** UI powered by `@fastify/swagger` and `@fastify/swagger-ui`.
@@ -301,7 +504,11 @@ All admin endpoints require the `x-api-key` header.
   "upstream": { "host": "orders.svc", "port": 8080 },
   "strip_path": false,
   "timeouts_ms": { "connect": 200, "request": 2000 },
-  "retries": 2
+  "retries": 2,
+  "canary": {
+    "upstream": { "host": "orders-canary.svc", "port": 8090 },
+    "weight": 10
+  }
 }
 ```
 
@@ -318,9 +525,16 @@ All admin endpoints require the `x-api-key` header.
 {
   "route": "orders",
   "auth_required": true,
-  "rate_limit": { "rps": 50, "burst": 100 }
+  "rate_limit": { "rps": 50, "burst": 100 },
+  "cache_ttl_seconds": 60
 }
 ```
+
+#### Upstream Health
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/admin/upstreams` | Snapshot of all upstream health entries |
 
 ### Observability
 
@@ -341,8 +555,10 @@ GET /v1/orders/123
 ```
 
 **Response headers always include:**
-- `X-Request-ID` — trace ID for end-to-end correlation
+- `traceparent` — W3C trace context (echoed back to client)
+- `x-request-id` — trace ID (backwards compatibility)
 - `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
+- `X-Cache: HIT|MISS` — cache status (when `CACHE_ENABLED=true`)
 
 ---
 
@@ -372,8 +588,13 @@ cp .env.example .env
 | `CIRCUIT_BREAKER_TIMEOUT_MS` | | `3000` | Per-request timeout inside breaker |
 | `CIRCUIT_BREAKER_ERROR_THRESHOLD_PERCENT` | | `50` | Error % to open the breaker |
 | `CIRCUIT_BREAKER_RESET_TIMEOUT_MS` | | `10000` | Wait before probing after open |
-| `FEATURE_CANARY_RELEASES` | | `false` | Enable traffic splitting (WIP) |
-| `FEATURE_ANALYTICS` | | `false` | Enable analytics (WIP) |
+| `CACHE_ENABLED` | | `false` | Enable Redis response caching |
+| `CACHE_DEFAULT_TTL_SECONDS` | | `0` | Global cache TTL (0 = per-route policy only) |
+| `UPSTREAM_HEALTH_ENABLED` | | `false` | Enable background upstream health probing |
+| `UPSTREAM_HEALTH_CHECK_INTERVAL_MS` | | `30000` | Probe interval in milliseconds |
+| `UPSTREAM_HEALTH_TIMEOUT_MS` | | `3000` | Per-probe HTTP timeout |
+| `FEATURE_CANARY_RELEASES` | | `false` | Enable weighted canary traffic splitting |
+| `FEATURE_ANALYTICS` | | `false` | Enable analytics (future) |
 
 ---
 
@@ -448,6 +669,54 @@ docker run -p 3000:3000 \
 The Dockerfile uses a **multi-stage build**:
 1. `builder` — installs all deps, compiles TypeScript
 2. `production` — copies only compiled JS + prod deps, runs as non-root user
+
+---
+
+## Example Services
+
+Two zero-dependency Node.js services that act as realistic upstreams for local testing.
+
+```bash
+# Start all services (gateway + infra + example services)
+docker compose up --build
+
+# Register example routes, policies, and canary config
+./example-services/setup.sh
+```
+
+Then try:
+```bash
+curl http://localhost:3000/users
+curl http://localhost:3000/orders
+curl http://localhost:3000/admin/upstreams -H "x-api-key: dev-admin-key-123456"
+```
+
+See [`example-services/README.md`](./example-services/README.md) for the full walkthrough.
+
+---
+
+## Load Testing
+
+k6 load test scripts are in [`tests/load/`](./tests/load/).
+
+```bash
+# Install k6
+brew install k6  # or: choco install k6
+
+# Smoke test (1 VU, 30 s — sanity check)
+k6 run tests/load/smoke.js
+
+# Load test (0→20→0 VUs over 5 min — SLO validation)
+k6 run tests/load/load.js
+
+# Stress test (0→300→0 VUs over 10 min — break-point analysis)
+k6 run tests/load/stress.js
+
+# Against a remote environment
+k6 run --env BASE_URL=https://gateway.staging.example.com tests/load/load.js
+```
+
+See [`tests/load/README.md`](./tests/load/README.md) for full details.
 
 ---
 

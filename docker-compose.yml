@@ -57,6 +57,53 @@ services:
     networks:
       - gateway-net
 
+  # ─── Example: Users microservice ───────────────────────────
+  users-service:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./example-services/users:/app
+    command: node server.js
+    environment:
+      PORT: '8081'
+      VERSION: 'v1'
+    ports:
+      - '8081:8081'
+    networks:
+      - gateway-net
+
+  # ─── Example: Orders microservice (stable) ──────────────────
+  orders-service:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./example-services/orders:/app
+    command: node server.js
+    environment:
+      PORT: '8082'
+      VERSION: 'v1'
+    ports:
+      - '8082:8082'
+    networks:
+      - gateway-net
+
+  # ─── Example: Orders microservice (canary) ──────────────────
+  # Set FEATURE_CANARY_RELEASES=true in gateway env to split traffic.
+  orders-canary:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./example-services/orders:/app
+    command: node server.js
+    environment:
+      PORT: '8083'
+      VERSION: 'v2-canary'
+      LATENCY_MS: '50'
+    ports:
+      - '8083:8083'
+    networks:
+      - gateway-net
+
 volumes:
   postgres-data:
   redis-data:

@@ -8,6 +8,7 @@ function mapRow(row: Record<string, unknown>): Policy {
     authRequired: row['auth_required'] as boolean,
     rateLimitRps: row['rate_limit_rps'] as number | null,
     rateLimitBurst: row['rate_limit_burst'] as number | null,
+    cacheTtlSeconds: (row['cache_ttl_seconds'] as number | null) ?? null,
     createdAt: row['created_at'] as Date,
     updatedAt: row['updated_at'] as Date,
   };
@@ -38,19 +39,21 @@ export class PolicyRepository {
    */
   async upsert(routeId: string, dto: CreatePolicyDto): Promise<Policy> {
     const result = await db.query(
-      `INSERT INTO policies (route_id, auth_required, rate_limit_rps, rate_limit_burst)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO policies (route_id, auth_required, rate_limit_rps, rate_limit_burst, cache_ttl_seconds)
+       VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (route_id) DO UPDATE SET
-         auth_required    = EXCLUDED.auth_required,
-         rate_limit_rps   = EXCLUDED.rate_limit_rps,
-         rate_limit_burst = EXCLUDED.rate_limit_burst,
-         updated_at       = NOW()
+         auth_required      = EXCLUDED.auth_required,
+         rate_limit_rps     = EXCLUDED.rate_limit_rps,
+         rate_limit_burst   = EXCLUDED.rate_limit_burst,
+         cache_ttl_seconds  = EXCLUDED.cache_ttl_seconds,
+         updated_at         = NOW()
        RETURNING *`,
       [
         routeId,
         dto.auth_required ?? false,
         dto.rate_limit?.rps ?? null,
         dto.rate_limit?.burst ?? null,
+        dto.cache_ttl_seconds ?? null,
       ],
     );
     return mapRow(result.rows[0] as Record<string, unknown>);

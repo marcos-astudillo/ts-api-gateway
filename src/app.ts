@@ -16,9 +16,11 @@ import { proxyRoutes } from './routes/proxy.routes';
 import { traceIdMiddleware } from './middlewares/trace-id.middleware';
 import { authMiddleware } from './middlewares/auth.middleware';
 import { rateLimitMiddleware } from './middlewares/rate-limit.middleware';
+import { cacheMiddleware, cacheOnSend } from './middlewares/cache.middleware';
 import { errorHandler } from './middlewares/error-handler.middleware';
 
 import { loadConfig, startConfigReload, stopConfigReload } from './services/router/config-cache';
+import { startHealthChecks, stopHealthChecks } from './services/health/upstream-health.service';
 
 /**
  * Builds and configures the Fastify application.
@@ -209,6 +211,8 @@ swap the in-memory routing table when a new version is detected — **zero downt
   app.addHook('preHandler', traceIdMiddleware);
   app.addHook('preHandler', authMiddleware);
   app.addHook('preHandler', rateLimitMiddleware);
+  app.addHook('preHandler', cacheMiddleware);
+  app.addHook('onSend', cacheOnSend);
 
   // ─── Route registration (ORDER MATTERS) ───────────────────────
   await app.register(healthRoutes);
@@ -228,11 +232,15 @@ swap the in-memory routing table when a new version is detected — **zero downt
     // Start background polling for config version changes (hot reload)
     startConfigReload();
 
+    // Start upstream health-check background loop (no-op when UPSTREAM_HEALTH_ENABLED=false)
+    startHealthChecks();
+
     logger.info({ port: env.PORT }, 'API Gateway ready');
   });
 
   app.addHook('onClose', async () => {
     stopConfigReload();
+    stopHealthChecks();
     await closeRedis();
     await closeDb();
     logger.info('Gateway shut down cleanly');

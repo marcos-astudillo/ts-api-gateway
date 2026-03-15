@@ -14,6 +14,9 @@ function mapRow(row: Record<string, unknown>): Route {
     requestTimeoutMs: row['request_timeout_ms'] as number,
     retries: row['retries'] as number,
     enabled: row['enabled'] as boolean,
+    canaryUpstreamHost: (row['canary_upstream_host'] as string | null) ?? null,
+    canaryUpstreamPort: (row['canary_upstream_port'] as number | null) ?? null,
+    canaryWeight: (row['canary_weight'] as number | null) ?? null,
     createdAt: row['created_at'] as Date,
     updatedAt: row['updated_at'] as Date,
   };
@@ -49,8 +52,9 @@ export class RouteRepository {
     const result = await db.query(
       `INSERT INTO routes
         (name, path_prefix, upstream_host, upstream_port, strip_path,
-         connect_timeout_ms, request_timeout_ms, retries)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         connect_timeout_ms, request_timeout_ms, retries,
+         canary_upstream_host, canary_upstream_port, canary_weight)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
       [
         dto.name,
@@ -61,6 +65,9 @@ export class RouteRepository {
         dto.timeouts_ms?.connect ?? 200,
         dto.timeouts_ms?.request ?? 2000,
         dto.retries ?? 2,
+        dto.canary?.upstream.host ?? null,
+        dto.canary?.upstream.port ?? null,
+        dto.canary?.weight ?? null,
       ],
     );
     return mapRow(result.rows[0] as Record<string, unknown>);
@@ -72,17 +79,20 @@ export class RouteRepository {
 
     const result = await db.query(
       `UPDATE routes SET
-        name               = $1,
-        path_prefix        = $2,
-        upstream_host      = $3,
-        upstream_port      = $4,
-        strip_path         = $5,
-        connect_timeout_ms = $6,
-        request_timeout_ms = $7,
-        retries            = $8,
-        enabled            = $9,
-        updated_at         = NOW()
-       WHERE id = $10
+        name                 = $1,
+        path_prefix          = $2,
+        upstream_host        = $3,
+        upstream_port        = $4,
+        strip_path           = $5,
+        connect_timeout_ms   = $6,
+        request_timeout_ms   = $7,
+        retries              = $8,
+        enabled              = $9,
+        canary_upstream_host = $10,
+        canary_upstream_port = $11,
+        canary_weight        = $12,
+        updated_at           = NOW()
+       WHERE id = $13
        RETURNING *`,
       [
         dto.name              ?? existing.name,
@@ -94,6 +104,9 @@ export class RouteRepository {
         dto.timeouts_ms?.request ?? existing.requestTimeoutMs,
         dto.retries            ?? existing.retries,
         dto.enabled            ?? existing.enabled,
+        dto.canary?.upstream.host ?? existing.canaryUpstreamHost,
+        dto.canary?.upstream.port ?? existing.canaryUpstreamPort,
+        dto.canary?.weight        ?? existing.canaryWeight,
         id,
       ],
     );

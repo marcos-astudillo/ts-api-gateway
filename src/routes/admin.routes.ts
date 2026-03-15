@@ -2,6 +2,7 @@ import { FastifyPluginCallback } from 'fastify';
 import { adminAuthMiddleware } from '../middlewares/admin-auth.middleware';
 import * as routeController from '../controllers/route.controller';
 import * as policyController from '../controllers/policy.controller';
+import { getAllUpstreamHealth } from '../services/health/upstream-health.service';
 import { RouteSchemas } from '../schemas/route.schema';
 import { PolicySchemas } from '../schemas/policy.schema';
 import { errorResponse, validationErrorResponse } from '../schemas/common.schema';
@@ -165,5 +166,39 @@ export const adminRoutes: FastifyPluginCallback = (app, _opts, done) => {
       },
     },
   }, policyController.deletePolicy);
+
+  // ─── Upstream health ─────────────────────────────────────────
+
+  app.get('/upstreams', {
+    schema: {
+      tags: ['Admin: Health'],
+      summary: 'List upstream health status',
+      description:
+        'Returns the latest health snapshot for every upstream registered in the routing table. ' +
+        'Populated by the background health-check loop (requires `UPSTREAM_HEALTH_ENABLED=true`). ' +
+        'Each entry includes the last latency probe, consecutive failure count, and circuit-breaker state.',
+      security: adminSecurity,
+      response: {
+        200: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              upstream:            { type: 'string', examples: ['api.example.com:8080'] },
+              status:              { type: 'string', enum: ['healthy', 'degraded', 'unhealthy', 'unknown'] },
+              latencyMs:           { type: ['number', 'null'] },
+              consecutiveFailures: { type: 'number' },
+              lastCheckedAt:       { type: ['string', 'null'], format: 'date-time' },
+              circuitBreaker:      { type: 'string', enum: ['open', 'half_open', 'closed'] },
+            },
+          },
+        },
+        401: errorResponse,
+      },
+    },
+  }, async (_req, reply) => {
+    void reply.send(getAllUpstreamHealth());
+  });
+
   done();
 };
