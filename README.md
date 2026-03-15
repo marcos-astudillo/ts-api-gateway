@@ -13,6 +13,7 @@
 - [Architecture](#architecture)
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
+- [Resilience Features](#resilience-features)
 - [API Docs (Swagger UI)](#api-docs-swagger-ui)
 - [API Reference](#api-reference)
 - [Environment Variables](#environment-variables)
@@ -141,6 +142,92 @@ ts-api-gateway/
 ├── railway.toml          # Railway deployment config
 └── .env.example          # All environment variables documented
 ```
+
+---
+
+## Resilience Features
+
+Every upstream request passes through a three-layer resilience stack before the gateway returns an error to the client.
+
+```
+proxy handler → circuit breaker → retry policy → AbortSignal timeout → upstream
+```
+
+### Circuit Breaker
+
+Implemented with [opossum](https://nodeshift.dev/opossum/).
+One breaker is maintained **per unique upstream** (`host:port`).
+
+| State | Behaviour |
+|---|---|
+| **CLOSED** | Normal operation — all requests pass through |
+| **OPEN** | Upstream is unhealthy — requests fail-fast with `503` (no network call made) |
+| **HALF-OPEN** | After `CIRCUIT_BREAKER_RESET_TIMEOUT_MS`, one probe request is allowed through |
+
+If the probe succeeds the circuit **closes**; if it fails the circuit **reopens**.
+
+All state transitions are logged at `warn`/`info` level and reflected in the `/metrics` endpoint under `circuit_breakers`.
+
+**Configuration:**
+
+| Variable | Default | Description |
+|---|---|---|
+| `CIRCUIT_BREAKER_ERROR_THRESHOLD_PERCENT` | `50` | % failures (within rolling window) needed to open |
+| `CIRCUIT_BREAKER_RESET_TIMEOUT_MS` | `10000` | Milliseconds to wait in OPEN before probing |
+
+**Response when circuit is open:**
+```json
+{ "error": "upstream_unavailable", "message": "Service temporarily unavailable" }
+```
+
+### Retry Policy
+
+Automatic retries on transient failures, **inside** the circuit breaker. The breaker sees only the final outcome — individual retry attempts are invisible to it, so recoverable blips don't count against the error threshold.
+
+**Retried on:**
+- Network errors: `ECONNREFUSED`, `ECONNRESET`, `ETIMEDOUT`, undici socket errors
+- Timeout errors: `TimeoutError` / `AbortError` from `AbortSignal.timeout()`
+- 5xx upstream responses: `500`–`599`
+
+**Not retried on:** 4xx responses (client errors — retrying won't change the outcome).
+
+**Retry budget:** set per-route via the `retries` field in `POST /admin/routes` (default `2` — up to 3 total attempts).
+
+```json
+{ "retries": 2 }
+```
+
+### Request Timeout
+
+Each individual attempt gets a hard wall-clock deadline via [`AbortSignal.timeout()`](https://nodejs.org/api/globals.html#abortsignaltimeoutdelay) — a fresh signal is created per attempt so a timed-out first attempt does not bleed into the retry's deadline.
+
+Timeout values are configured per-route:
+
+```json
+{ "timeouts_ms": { "connect": 200, "request": 3000 } }
+```
+
+| Field | Description |
+|---|---|
+| `connect` | Max time to establish TCP connection and receive response headers |
+| `request` | Max wall-clock time for the entire request (connect + body) — enforced via `AbortSignal` |
+
+**Response when upstream times out:**
+```json
+{ "error": "upstream_timeout", "message": "Upstream did not respond in time" }
+```
+
+### Observability
+
+All resilience events emit structured log entries:
+
+| Event | Level | Fields |
+|---|---|---|
+| Circuit opens | `warn` | `upstream`, message |
+| Circuit closes | `info` | `upstream`, message |
+| Circuit half-open | `info` | `upstream`, message |
+| Upstream failure recorded | `error` | `upstream`, `err` |
+| Retry attempt | `warn` | `upstream`, `route`, `attempt`, `maxRetries`, `reason` |
 
 ---
 
@@ -385,6 +472,7 @@ npm run test:coverage
 | `tests/unit/rate-limiter.test.ts` | Unit | Redis sliding window (mocked Redis) |
 | `tests/unit/metrics.test.ts` | Unit | Counter/histogram recording |
 | `tests/unit/app.test.ts` | Unit | App bootstrap, health endpoints |
+| `tests/unit/resilience.test.ts` | Unit | Retry policy, circuit breaker, timeout detection |
 | `tests/integration/admin.test.ts` | Integration | Admin CRUD (real PostgreSQL) |
 | `tests/integration/proxy.test.ts` | Integration | Proxy routing (real upstream server) |
 

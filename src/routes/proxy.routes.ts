@@ -15,7 +15,7 @@ import { logger } from '../logger';
  *   4. ↓ this handler
  *      a. route matching
  *      b. body extraction
- *      c. circuit-breaker + undici proxy
+ *      c. circuit-breaker → retry policy → undici proxy
  *      d. metrics recording
  */
 // @fastify/cors already handles OPTIONS /* for CORS preflight.
@@ -93,26 +93,41 @@ export const proxyRoutes: FastifyPluginCallback = (app, _opts, done) => {
         'Proxy request failed',
       );
 
-      recordRequest(route.name, 502, latencyMs);
+      // Circuit open counts as 503, everything else as 502 for metrics
+      const metricsCode = error.message?.includes('Breaker is open') ? 503 : 502;
+      recordRequest(route.name, metricsCode, latencyMs);
 
+      // Circuit open — breaker is protecting against a failing upstream
       if (error.message?.includes('Breaker is open')) {
         void reply.status(503).send({
-          error: 'Service temporarily unavailable — upstream circuit open',
+          error: 'upstream_unavailable',
+          message: 'Service temporarily unavailable',
           traceId,
         });
         return;
       }
 
+      // AbortSignal.timeout() fires TimeoutError; undici header timeout fires AbortError or
+      // UND_ERR_HEADERS_TIMEOUT. Treat all as a gateway-side timeout (504).
       if (
-        error.message?.includes('timed out') ||
+        error.name === 'TimeoutError' ||
+        error.name === 'AbortError' ||
         error.message?.includes('UND_ERR_HEADERS_TIMEOUT') ||
         error.message?.includes('UND_ERR_BODY_TIMEOUT')
       ) {
-        void reply.status(504).send({ error: 'Gateway timeout', traceId });
+        void reply.status(504).send({
+          error: 'upstream_timeout',
+          message: 'Upstream did not respond in time',
+          traceId,
+        });
         return;
       }
 
-      void reply.status(502).send({ error: 'Bad gateway', traceId });
+      void reply.status(502).send({
+        error: 'upstream_error',
+        message: 'Bad gateway',
+        traceId,
+      });
     }
   };
 

@@ -14,6 +14,13 @@ export interface ProxyOptions {
   body?: Buffer;
   traceId: string;
   queryString: string;
+  /**
+   * Optional hard wall-clock timeout signal.
+   * upstream-client.ts supplies AbortSignal.timeout(route.requestTimeoutMs) per attempt.
+   * When the signal fires, undici throws a DOMException { name: 'TimeoutError' },
+   * which retry-policy.ts recognises as retryable.
+   */
+  signal?: AbortSignal;
 }
 
 export interface ProxyResult {
@@ -48,7 +55,7 @@ const HOP_BY_HOP = new Set([
  *  - Measures upstream latency for metrics/SLOs
  */
 export async function proxyRequest(options: ProxyOptions): Promise<ProxyResult> {
-  const { route, upstreamPath, method, headers, body, traceId, queryString } = options;
+  const { route, upstreamPath, method, headers, body, traceId, queryString, signal } = options;
 
   const qs = queryString ? `?${queryString}` : '';
   const url = `http://${route.upstreamHost}:${route.upstreamPort}${upstreamPath}${qs}`;
@@ -70,9 +77,11 @@ export async function proxyRequest(options: ProxyOptions): Promise<ProxyResult> 
       method: method as Dispatcher.HttpMethod,
       headers: forwardHeaders,
       body: body?.length ? body : undefined,
-      // undici separates connect timeout (headersTimeout) from body timeout (bodyTimeout)
+      // headersTimeout covers TCP connect + sending request + waiting for response headers
       headersTimeout: route.connectTimeoutMs,
-      bodyTimeout: route.requestTimeoutMs,
+      // signal is a hard wall-clock limit supplied by upstream-client.ts per retry attempt;
+      // when it fires, undici throws DOMException { name: 'TimeoutError' }
+      signal,
     });
 
     const upstreamLatencyMs = Date.now() - start;

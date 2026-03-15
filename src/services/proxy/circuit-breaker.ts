@@ -1,5 +1,9 @@
 import CircuitBreaker from 'opossum';
-import { proxyRequest, ProxyOptions, ProxyResult } from './http-proxy';
+// upstreamRequest wraps proxyRequest with retry + per-attempt AbortSignal timeouts.
+// The circuit breaker wraps upstreamRequest so it sees only final outcomes:
+// transient errors that self-heal within the retry budget never count as failures.
+import { upstreamRequest } from './upstream-client';
+import { ProxyOptions, ProxyResult } from './http-proxy';
 import { env } from '../../config/env';
 import { logger } from '../../logger';
 import { setCircuitBreakerState } from '../metrics/metrics.service';
@@ -27,12 +31,15 @@ function upstreamKey(host: string, port: number): string {
 }
 
 function createBreaker(key: string): ProxyBreaker {
-  const breaker = new CircuitBreaker(proxyRequest, {
+  const breaker = new CircuitBreaker(upstreamRequest, {
     name: key,
-    timeout: env.CIRCUIT_BREAKER_TIMEOUT_MS,
+    // opossum's own timeout is disabled — AbortSignal.timeout() inside upstream-client.ts
+    // provides per-attempt deadlines that also integrate with the retry policy.
+    timeout: false,
     errorThresholdPercentage: env.CIRCUIT_BREAKER_ERROR_THRESHOLD_PERCENT,
     resetTimeout: env.CIRCUIT_BREAKER_RESET_TIMEOUT_MS,
-    // Minimum number of requests before the error rate is evaluated
+    // Require at least 5 requests in the rolling window before evaluating error rate.
+    // Prevents a cold-start spike from opening the circuit prematurely.
     volumeThreshold: 5,
   });
 
@@ -46,6 +53,12 @@ function createBreaker(key: string): ProxyBreaker {
   });
   breaker.on('halfOpen', () => {
     logger.info({ upstream: key }, 'Circuit breaker HALF-OPEN — probing upstream');
+  });
+  breaker.on('failure', (err: unknown) => {
+    logger.error(
+      { upstream: key, err: err instanceof Error ? err.message : err },
+      'Circuit breaker recorded upstream failure',
+    );
   });
 
   return breaker;
