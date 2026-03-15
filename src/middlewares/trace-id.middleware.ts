@@ -12,14 +12,16 @@ import { FastifyRequest, FastifyReply } from 'fastify';
  *   4. The proxy will forward this header to upstream services and
  *      echo it back to the client in the response.
  */
-export async function traceIdMiddleware(
+export function traceIdMiddleware(
   req: FastifyRequest,
   _reply: FastifyReply,
-): Promise<void> {
+  done: () => void,
+): void {
   const incoming = req.headers['x-request-id'];
   const traceId = typeof incoming === 'string' ? incoming : crypto.randomUUID();
 
   req.requestContext.set('traceId', traceId);
   // Overwrite so downstream middleware and the proxy see a single consistent value
   req.headers['x-request-id'] = traceId;
+  done();
 }
